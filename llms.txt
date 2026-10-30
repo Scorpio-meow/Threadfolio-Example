@@ -3,7 +3,7 @@
 
 ## Ecosystem Integration
 - Upstream Collector: Threadkeep (Google Chrome Extension, https://github.com/Scorpio-meow/Threadkeep.git). Automatically captures, sanitizes DOM noise, and exports structured post datasets while browsing Threads.
-- Downstream Presentation: Threadfolio (Static Web App, https://github.com/Scorpio-meow/Threadfolio-Example.git). Ingests the exported posts array in config.js to provide a robust, rate-limited, filtered, and responsive showcase interface.
+- Downstream Presentation: Threadfolio (Static Web App, live demo https://scorpio-meow.github.io/Threadfolio-Example/, source https://github.com/Scorpio-meow/Threadfolio-Example.git). Ingests the exported posts array in config.js to provide a robust, rate-limited, filtered, and responsive showcase interface.
 - License: MIT ([LICENSE](./LICENSE))
 
 ## Core Files & Directory Structure

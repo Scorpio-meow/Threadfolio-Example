@@ -9,6 +9,7 @@
 [![Tech Stack](https://img.shields.io/badge/tech--stack-Vanilla--JS-blue?style=for-the-badge&logo=javascript&logoColor=white)](#tech-stack--specifications)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-success?style=for-the-badge)](#tech-stack--specifications)
 [![Companion Repo](https://img.shields.io/badge/Companion_Repo-Threadkeep-8A2BE2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Scorpio-meow/Threadkeep)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-GitHub_Pages-D12F35?style=for-the-badge&logo=githubpages&logoColor=white)](https://scorpio-meow.github.io/Threadfolio-Example/)
 
 ---
 
