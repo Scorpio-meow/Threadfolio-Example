@@ -1,0 +1,159 @@
+# Threadfolio
+> Pure front-end static web application for displaying, paginating, and filtering featured Threads posts with exponential rate-limiting backoff, responsive masonry layout, and PWA offline caching.
+
+## Ecosystem Integration
+- Upstream Collector: Threadkeep (Google Chrome Extension, https://github.com/Scorpio-meow/Threadkeep.git). Automatically captures, sanitizes DOM noise, and exports structured post datasets while browsing Threads.
+- Downstream Presentation: Threadfolio (Static Web App, https://github.com/Scorpio-meow/Threadfolio-Example.git). Ingests the exported posts array in config.js to provide a robust, rate-limited, filtered, and responsive showcase interface.
+- License: MIT ([LICENSE](./LICENSE))
+
+## Core Files & Directory Structure
+- [index.html](./index.html): Primary semantic HTML structure containing the header (site title "Threadfolio" in the page's only `h1` and the total post count filled in by threads-loader.js), search inputs, dark/light theme toggles, hashtag container, masonry/list layout wrappers, pagination controls, loading progress panel, and FAQ diagnostic modal.
+- [config.js](./config.js): Post data repository (posts array) and runtime rate-limiting/rendering configuration constants (LOAD_DELAY, BATCH_SIZE, EMBED_STAGGER_DELAY, etc.).
+- [threads-loader.js](./threads-loader.js): Primary runtime controller managing pagination calculation, queue scheduling, rate-limit backoff handling (including fetch/XHR 429 interception), iframe lifecycle & background tab visibility monitoring, DOM shimmer skeleton rendering, tag frequency statistics, real-time search filtering, and progress metrics telemetry.
+- [console-filter.js](./console-filter.js): Global error and warning interceptor that suppresses Threads embed script 404 noise outside debug mode and dispatches `threads:rate-limit` (429 / rate limit messages) and `threads:xframe-block` (X-Frame-Options deny) custom events.
+- [styles.css](./styles.css): Design token system with CSS custom properties (borderless lightness-layered surfaces, dark-mode font-weight compensation, easing and spring curves), Light/Dark theme styles, native CSS columns masonry layout, post skeleton shimmer, scroll-driven card entrance (`animation-timeline: view()`, progressive enhancement), and a grid-based FAQ collapse.
+- [sw.js](./sw.js): Progressive Web App (PWA) Service Worker implementing 32-bit djb2 content hashing across core files for automated cache invalidation and offline asset serving.
+- [manifest.json](./manifest.json): Web App Manifest specification for desktop and mobile home screen installation.
+- [README.md](./README.md): Comprehensive Traditional Chinese documentation with architecture diagrams, runtime configuration tables, and developer guide.
+- [README_EN.md](./README_EN.md): Comprehensive English documentation mirroring the full architectural and technical specification.
+- [llms.txt](./llms.txt): Structured technical specifications for AI agents and LLM/RAG indexing pipelines.
+
+## Data Types & Schema
+
+### PostItem Interface (posts array in config.js)
+```typescript
+interface PostItem {
+  /** Threads official blockquote HTML embed code string */
+  embedCode: string;
+
+  /** Canonical URL to the original Threads post */
+  postLink: string;
+
+  /** Author username handle without @ prefix */
+  author: string;
+
+  /** Extracted plaintext content of the post */
+  content: string;
+
+  /** Array of extracted hashtags and keyword topics */
+  tags: string[];
+
+  /** Whether the post embeds for logged-out viewers (written by the Threadkeep extension's check); when false the iframe is still attempted and only a failure shows the login-only explanation; absent means unchecked */
+  embeddable?: boolean;
+}
+```
+
+### RuntimeConfig Interface (config.js constants)
+```typescript
+interface RuntimeConfig {
+  /** Base delay between consecutive post loads in ms (default: 4000; values below 4000 are raised to 4000) */
+  LOAD_DELAY: number;
+
+  /** Maximum concurrent iframe loads limit (default: 1; the loader caps it at 1, larger values have no effect) */
+  BATCH_SIZE: number;
+
+  /** Stagger delay between adjacent post requests in ms (default: 3600; values below 3600 are raised to 3600) */
+  EMBED_STAGGER_DELAY: number;
+
+  /** Individual iframe render timeout threshold in ms (default: 3600) */
+  IFRAME_TIMEOUT: number;
+
+  /** Initial presence check threshold in ms (default: 8000) */
+  MIN_IFRAME_TIMEOUT: number;
+
+  /** Base backoff duration on HTTP 429 error in ms (default: 60000, 1.5x scaling up to 300s) */
+  RATE_LIMIT_BACKOFF: number;
+
+  /** Maximum ceiling for dynamic delay in ms (default: 60000) */
+  MAX_DELAY: number;
+
+  /** Reserved, not read by the loader (default: 3600) */
+  MIN_DELAY_BETWEEN_REQUESTS: number;
+
+  /** Reserved, not read by the loader (default: 30) */
+  MAX_VISIBLE_QUEUE: number;
+
+  /** Available page size options array in dropdown (default: [1, 5, 10, 25, 50, 100, 1000]) */
+  PAGE_SIZE_OPTIONS: number[];
+
+  /** Default number of posts rendered per page (default: 10; must be one of PAGE_SIZE_OPTIONS, otherwise the first option is used) */
+  PAGE_SIZE: number;
+}
+```
+
+### URLParams Interface (URL Query Parameters)
+```typescript
+interface URLParams {
+  /** Target page index (1-based integer) */
+  page?: number;
+
+  /** Number of items rendered per page */
+  page_size?: number;
+
+  /** Seed timestamp string for deterministic random shuffle */
+  random?: string;
+
+  /** Search query string matching author, content, or tags */
+  search?: string;
+
+  /** Exact hashtag filter (excluding #) */
+  tag?: string;
+
+  /** Single post isolated preview mode (URL string or index) */
+  post?: string;
+
+  /** Enable debug logging in console and bypass filter */
+  debug?: '1';
+}
+```
+
+## Key Algorithms & Operational Mechanisms
+
+### 1. Exponential Rate-Limiting Backoff
+- console-filter.js intercepts 429, rate limit, or too many requests patterns and dispatches the `threads:rate-limit` event.
+- threads-loader.js also wraps `window.fetch` and `XMLHttpRequest`; a 429 response calls `handleRateLimit` directly and passes the `Retry-After` header value (seconds) when present.
+- `handleRateLimit` pauses the queue, removes in-flight iframes, shows a live countdown banner on the progress panel, and waits `Retry-After` if given, otherwise `RATE_LIMIT_BACKOFF * 1.5^(consecutiveErrors - 1)`; both are capped at 300s.
+- Each successful fetch/XHR response decrements `consecutiveErrors`. Once the timer expires, the queue safely resumes loading remaining embeds.
+
+### 2. Chunked Non-Blocking DOM Rendering with Shimmer Skeletons
+- Uses `requestIdleCallback` (with `setTimeout` fallback) to mount DOM cards without blocking main-thread user interactions, keeping Interaction to Next Paint (INP) minimal.
+- Each post card gets a `.post-skeleton` element (avatar, name, text lines, media block, shimmer) that covers Threads' raw white placeholder while the post waits in the queue. Unready cards hold a 320px minimum height.
+- The skeleton is removed when the card gains `post-item--ready` (added by the `message` listener on the first positive height report) or `error` (fallback card).
+
+### 3. Deterministic Seeded Pseudo-Random Shuffle
+- Shuffling generates a timestamp seed preserved in URL `?random=<seed>`.
+- `shuffleWithSeed` runs a Fisher–Yates shuffle driven by a linear congruential generator (`seed = (seed * 9301 + 49297) % 233280`) on a copy of the filtered posts, guaranteeing identical post sorting order during pagination and page refresh.
+
+### 4. Iframe Health Observers, Background Tab Adaptation & Graceful Fallback
+- Uses `MutationObserver` to watch iframe insertion, filtering out initial empty `about:blank` events until the real Threads URL loads.
+- Background tab adaptation (`document.hidden`): relaxes timeout to 25s+ and broadcasts `resize` events upon `visibilitychange` to trigger immediate recalculations.
+- Height sync (placeholder → reported height):
+  - Threads `embed.js` inserts each iframe at `height: 0`; the embedded page then posts its content height to the parent as a plain number of pixels from `https://www.threads.com`, not a `MEASURE` object. An iframe still at 0 height reports `0`.
+  - `.post-item iframe { min-height: 280px; }` in styles.css is the placeholder until the first positive report, keeping cards from collapsing.
+  - The `window` `message` listener in threads-loader.js accepts numeric reports from `ALLOWED_THREADS_HOSTS` origins (legacy `{ type: 'MEASURE' | 'HEIGHT', details: { height } }` objects too), skips `0`, and pins both `style.height` and `style.minHeight` to the reported value, so embeds shorter than 280px (e.g. the "Cannot display thread" notice, short text posts) end flush with their content. It also adds `post-item--ready` to the card, which removes the skeleton.
+- Uses `ResizeObserver` to monitor rendered height. If an iframe fails to render, times out, or stays under 120px height (indicating block/error), it is gracefully replaced with a fallback card containing the failure reason and a direct Threads link. A working embed has Threads post its height (> 0) via `postMessage`; an iframe with no height report before the timeout (`IFRAME_TIMEOUT`, or `EMBED_REPORT_TIMEOUT` of 8s in the foreground) is treated as a Threads error page (e.g. the embed endpoint returning 500 for sensitive or login-only posts) and also replaced. Other messages, including ones posted by browser extensions injected into the iframe, are ignored.
+
+### 5. 32-bit djb2 Dynamic Service Worker Cache Invalidation
+- `sw.js` reads source code of core files (index.html, styles.css, threads-loader.js, config.js, console-filter.js, manifest.json), computes a unified 32-bit djb2 hash, and creates versioned caches automatically.
+- Any file modifications trigger cache recreation and stale cache deletion on install/activate.
+
+### 6. DOM Security & Safe Rendering
+- Strict protection against DOM XSS: User-supplied and dataset text strings are rendered using text nodes or safe attribute bindings rather than raw `innerHTML`.
+- Dynamic style attributes use validated values to prevent script injection.
+
+## Development & Serving Commands
+- VS Code Live Server extension: Open `index.html` via "Open with Live Server" (`http://127.0.0.1:5500`).
+- Static server execution via Bun (CLI):
+  ```bash
+  bunx http-server -p 3000
+  ```
+- Access application:
+  http://localhost:3000
+
+## Known Constraints & Troubleshooting
+- Threads Embed Availability: Public posts embed without a Threads login and regardless of "Do Not Track" (`embed.js` never reads it). Posts Threads restricts (deleted, private accounts, or login-only/sensitive posts) return HTTP 500 from `/embed` for logged-out viewers; login-only posts display only for viewers logged into Threads in the same browser with third-party cookies allowed (an expired Threads session fails until the viewer logs in again). Ad/privacy blockers that block `threads.com/embed.js` prevent all embeds. These cases show the fallback card.
+- Rate Limiting Defense: Maintain BATCH_SIZE = 1 and EMBED_STAGGER_DELAY = 3600 (unified 3.6s interval between posts) in config.js to ensure long-term uninterrupted embed rendering.
+- Diagnostic Mode: Append `?debug=1` to the URL to view unmasked console errors and timing telemetry.
+
+## License
+Licensed under the [MIT License](./LICENSE).
